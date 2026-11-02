@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reyhanlı Kent Belleği | TÜBİTAK 4006-A</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        parchment: '#FDFBF7',
+                        sepia: '#704214',
+                        darkbrown: '#2C1A0D',
+                        accent: '#8B2635'
+                    },
+                    fontFamily: {
+                        serif: ['"Playfair Display"', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Leaflet CSS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        body {
+            background-color: #FDFBF7;
+            background-image: url('data:image/svg+xml,%3Csvg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"%3E%3Cfilter id="noise"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="4" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100" height="100" filter="url(%23noise)" opacity="0.05"/%3E%3C/svg%3E');
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #FDFBF7; }
+        ::-webkit-scrollbar-thumb { background: #d1bfae; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #704214; }
+
+        /* Before/After Slider */
+        .ba-slider {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .ba-slider img {
+            width: 100%;
+            display: block;
+            pointer-events: none;
+        }
+        .ba-slider .resize {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 50%;
+            overflow: hidden;
+            border-right: 3px solid white;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.3);
+        }
+        .ba-slider .handle {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 36px;
+            height: 36px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: ew-resize;
+            z-index: 10;
+        }
+        .ba-slider .handle::before, .ba-slider .handle::after {
+            content: '';
+            border: solid #704214;
+            border-width: 0 2px 2px 0;
+            display: inline-block;
+            padding: 3px;
+        }
+        .ba-slider .handle::before { transform: rotate(135deg); margin-right: 2px; }
+        .ba-slider .handle::after { transform: rotate(-45deg); margin-left: 2px; }
+
+        .slider-range {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: ew-resize;
+            z-index: 20;
+        }
+
+        /* Modals & Animations */
+        .modal-overlay {
+            background: rgba(44, 26, 13, 0.7);
+            backdrop-filter: blur(4px);
+        }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Map height */
+        #map { height: 400px; z-index: 1; border-radius: 0.5rem; }
+    </style>
+</head>
+<body class="font-sans text-darkbrown antialiased flex flex-col min-h-screen">
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-parchment/90 backdrop-blur border-b border-sepia/20 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-20 items-center">
+                <div class="flex-shrink-0 flex items-center gap-3 cursor-pointer" onclick="switchView('home')">
+                    <i class="fa-solid fa-landmark text-3xl text-accent"></i>
+                    <div>
+                        <h1 class="font-serif text-2xl font-bold leading-tight">Kent Belleği</h1>
+                        <p class="text-xs tracking-widest uppercase text-sepia">Reyhanlı</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button onclick="document.getElementById('about-modal').classList.remove('hidden')" class="text-sm font-medium text-sepia hover:text-accent transition hidden sm:block">Proje Hakkında</button>
+                    
+                    <!-- Auth State UI -->
+                    <div id="auth-section" class="flex items-center gap-3">
+                        <span id="user-info" class="hidden text-sm font-medium items-center gap-2">
+                            <i class="fa-solid fa-medal text-yellow-600" title="Tarih Elçisi Rozeti"></i>
+                            <span id="username-display"></span>
+                        </span>
+                        <button id="admin-btn" onclick="switchView('admin')" class="hidden text-sm px-4 py-2 border border-accent text-accent rounded-full hover:bg-accent hover:text-white transition">Admin Paneli</button>
+                        <button id="add-memory-btn" onclick="openAddModal()" class="hidden bg-sepia text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-darkbrown transition shadow-md"><i class="fa-solid fa-plus mr-2"></i>Anı Ekle</button>
+                        <button id="login-btn" onclick="document.getElementById('login-modal').classList.remove('hidden')" class="bg-darkbrown text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-sepia transition shadow-md">Giriş Yap / Üye Ol</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Container -->
+    <div id="main-container" class="flex-grow">
+        
+        <!-- Home View -->
+        <div id="home-view" class="w-full">
+            
+            <!-- Hero Section -->
+            <header class="relative w-full h-[60vh] min-h-[400px] flex items-center justify-center overflow-hidden bg-darkbrown">
+                <!-- Fallback Background -->
+                <div class="absolute inset-0 z-0">
+                    <img src="https://placehold.co/1920x1080/2C1A0D/FDFBF7?text=Reyhanl%C4%B1+Tarihi+G%C3%B6rseli" alt="Hero Background" class="w-full h-full object-cover opacity-40">
+                    <div class="absolute inset-0 bg-gradient-to-t from-darkbrown via-transparent to-transparent"></div>
+                </div>
+                
+                <div class="relative z-10 text-center px-4 max-w-4xl mx-auto">
+                    <span class="inline-block py-1 px-3 rounded-full bg-accent/20 border border-accent/30 text-white text-xs font-semibold tracking-wider mb-4">TÜBİTAK 4006-A PROJESİ</span>
+                    <h2 class="font-serif text-4xl md:text-6xl font-bold text-white mb-6 drop-shadow-lg">Geçmişten Geleceğe<br>Reyhanlı'nın İzleri</h2>
+                    <p class="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl mx-auto font-light">Eski fotoğraflarla ilçemizin tarihine yolculuk yapın. Kendi anılarınızı ekleyerek kent belleğimizin dijital arşivine katkıda bulunun.</p>
+                    
+                    <div class="inline-flex flex-col items-center p-4 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white shadow-xl">
+                        <div id="live-clock" class="text-3xl font-serif font-bold tracking-widest">--:--:--</div>
+                        <div id="live-date" class="text-sm text-gray-300 mt-1 uppercase tracking-wide"></div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Interactive Features Section -->
+            <section class="py-16 bg-white border-b border-gray-100">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+                        
+                        <!-- Before / After Module -->
+                        <div>
+                            <div class="mb-6">
+                                <h3 class="font-serif text-3xl font-bold text-darkbrown mb-2">Zamanın Etkisi</h3>
+                                <p class="text-gray-600">Reyhanlı'nın tarihi noktalarındaki değişimi kaydırarak inceleyin.</p>
+                            </div>
+                            
+                            <div class="ba-slider select-none">
+                                <!-- Background Image (After) -->
+                                <img src="https://placehold.co/800x500/8B2635/ffffff?text=G%C3%BCn%C3%BCm%C3%BCz+(2024)" alt="Bugün">
+                                <!-- Foreground Image (Before) -->
+                                <div class="resize">
+                                    <img src="https://placehold.co/800x500/704214/ffffff?text=Eski+Zamanlar+(1960)" alt="Eski">
+                                </div>
+                                <div class="handle"></div>
+                                <input type="range" min="0" max="100" value="50" class="slider-range" id="ba-range">
+                            </div>
+                            <div class="flex justify-between text-xs text-gray-500 mt-2 px-1 font-medium">
+                                <span>&larr; Eskiden</span>
+                                <span>Günümüzde &rarr;</span>
+                            </div>
+                        </div>
+
+                        <!-- Map Module -->
+                        <div>
+                            <div class="mb-6">
+                                <h3 class="font-serif text-3xl font-bold text-darkbrown mb-2">Anı Haritası</h3>
+                                <p class="text-gray-600">Fotoğrafların çekildiği tarihi konumları harita üzerinde keşfedin.</p>
+                            </div>
+                            <div id="map" class="shadow-inner border border-gray-200"></div>
+                        </div>
+                        
+                    </div>
+                </div>
+            </section>
+
+            <!-- Gallery Section -->
+            <section class="py-16 bg-parchment">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between items-end mb-10">
+                        <div>
+                            <h3 class="font-serif text-4xl font-bold text-darkbrown mb-3">Tarihi Arşiv</h3>
+                            <p class="text-gray-600 text-lg">Vatandaşlarımızın gözünden eski Reyhanlı fotoğrafları ve hikayeleri.</p>
+                        </div>
+                        <div class="hidden sm:flex gap-2">
+                            <span class="px-3 py-1 bg-white border border-gray-200 rounded-full text-xs text-gray-500 font-medium">Toplam <span id="total-memories">0</span> Anı</span>
+                        </div>
+                    </div>
+
+                    <!-- Loader -->
+                    <div id="gallery-loader" class="flex justify-center py-20">
+                        <i class="fa-solid fa-circle-notch fa-spin text-4xl text-sepia"></i>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="gallery-empty" class="hidden text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
+                        <i class="fa-solid fa-camera-retro text-5xl text-gray-300 mb-4"></i>
+                        <h4 class="text-xl font-medium text-gray-600">Henüz hiç anı yüklenmemiş.</h4>
+                        <p class="text-gray-400 mt-2">İlk anıyı siz ekleyin ve tarihe not düşün!</p>
+                    </div>
+
+                    <!-- Gallery Grid -->
+                    <div id="gallery-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 hidden">
+                        <!-- Items will be injected here via JS -->
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Admin View -->
+        <div id="admin-view" class="w-full hidden bg-white min-h-screen py-10">
+            <div class="max-w-5xl mx-auto px-4">
+                <div class="flex items-center gap-4 mb-8">
+                    <button onclick="switchView('home')" class="text-gray-500 hover:text-darkbrown"><i class="fa-solid fa-arrow-left text-xl"></i></button>
+                    <h2 class="font-serif text-3xl font-bold text-darkbrown">Yönetici Paneli</h2>
+                </div>
+
+                <div class="bg-parchment rounded-xl p-6 border border-sepia/20">
+                    <h3 class="text-xl font-medium text-darkbrown mb-4 border-b border-sepia/20 pb-2"><i class="fa-solid fa-clipboard-check mr-2"></i>Onay Bekleyen Gönderiler</h3>
+                    
+                    <div id="admin-list" class="space-y-4">
+                        <!-- Pending items injected here -->
+                    </div>
+                    <div id="admin-empty" class="text-center py-10 text-gray-500 hidden">
+                        Onay bekleyen gönderi bulunmamaktadır.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-darkbrown text-white py-12 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center">
+            <i class="fa-solid fa-landmark text-4xl text-accent mb-4"></i>
+            <h4 class="font-serif text-2xl font-bold mb-2">Reyhanlı Kent Belleği</h4>
+            <p class="text-gray-400 mb-6 max-w-lg mx-auto">TÜBİTAK 4006-A Bilim Fuarı Projesi kapsamında, öğrencilerimiz tarafından geliştirilmiştir. Amacımız yerel tarihimizi dijitalleştirerek gelecek nesillere aktarmaktır.</p>
+            <div class="border-t border-white/10 pt-6 text-sm text-gray-500 flex flex-col sm:flex-row justify-center items-center gap-4">
+                <span>&copy; <span id="current-year"></span> Reyhanlı Kent Belleği. Tüm hakları saklıdır.</span>
+                <span class="hidden sm:inline">•</span>
+                <span>Proje Alanı: Tarih</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- MODALS -->
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative fade-in">
+            <button onclick="closeModal('login-modal')" class="absolute top-4 right-4 text-gray-400 hover:text-darkbrown text-xl"><i class="fa-solid fa-xmark"></i></button>
+            <div class="text-center mb-6">
+                <div class="w-12 h-12 bg-sepia/10 rounded-full flex items-center justify-center mx-auto mb-3 text-sepia text-xl"><i class="fa-solid fa-user-lock"></i></div>
+                <h3 class="font-serif text-2xl font-bold text-darkbrown">Sisteme Giriş</h3>
+                <p class="text-sm text-gray-500 mt-1">Anı eklemek ve yorum yapmak için giriş yapın.</p>
+            </div>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Adınız Soyadınız (Kullanıcı Adı)</label>
+                    <input type="text" id="login-name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sepia focus:border-sepia outline-none transition" placeholder="Örn: Ahmet Yılmaz">
+                </div>
+                <div class="pt-2">
+                    <button type="submit" class="w-full bg-sepia text-white py-2.5 rounded-lg font-medium hover:bg-darkbrown transition">Giriş Yap</button>
+                </div>
+                <div class="text-center text-xs text-gray-400 mt-4">
+                    *TÜBİTAK projesi prototipi olduğu için şifre istenmemektedir. Sadece adınızla giriş yapabilirsiniz. 'admin' yazarak yönetici olabilirsiniz.
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Memory Modal -->
+    <div id="add-modal" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 sm:p-8 relative fade-in my-8">
+            <button onclick="closeModal('add-modal')" class="absolute top-4 right-4 text-gray-400 hover:text-darkbrown text-xl"><i class="fa-solid fa-xmark"></i></button>
+            
+            <h3 class="font-serif text-2xl font-bold text-darkbrown mb-6 border-b pb-2">Yeni Bir Anı Ekle</h3>
+            
+            <form id="add-form" class="space-y-5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Başlık</label>
+                    <input type="text" id="post-title" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sepia" placeholder="Örn: Eski Belediye Meydanı (1970)">
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fotoğraf URL'si</label>
+                        <input type="url" id="post-image" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sepia text-sm" placeholder="https://ornek.com/foto.jpg">
+                        <p class="text-xs text-gray-400 mt-1">İnternetteki bir görselin bağlantısını yapıştırın.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                        <select id="post-category" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sepia bg-white">
+                            <option value="Günlük Yaşam">Günlük Yaşam</option>
+                            <option value="Mimari">Mimari / Binalar</option>
+                            <option value="Doğa">Doğa & Tarım</option>
+                            <option value="Eğitim">Eğitim</option>
+                            <option value="Özel Günler">Bayramlar & Özel Günler</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Anınız / Fotoğrafın Hikayesi</label>
+                    <textarea id="post-memory" required rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sepia resize-none" placeholder="Bu fotoğrafla ilgili hatırladıklarınızı, hikayeyi anlatın..."></textarea>
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <label class="block text-sm font-medium text-gray-700 mb-2"><i class="fa-solid fa-map-location-dot mr-1"></i> Konum Belirle (Reyhanlı)</label>
+                    <div class="flex gap-2 mb-2">
+                        <input type="number" step="any" id="post-lat" placeholder="Enlem (Örn: 36.26)" class="w-1/2 px-3 py-1.5 border rounded text-sm bg-white" value="36.265">
+                        <input type="number" step="any" id="post-lng" placeholder="Boylam (Örn: 36.56)" class="w-1/2 px-3 py-1.5 border rounded text-sm bg-white" value="36.568">
+                    </div>
+                    <p class="text-xs text-gray-500">Koordinatları bilmiyorsanız varsayılan olarak merkez seçilir.</p>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t">
+                    <button type="button" onclick="closeModal('add-modal')" class="px-5 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg transition">İptal</button>
+                    <button type="submit" id="submit-post-btn" class="px-5 py-2 bg-accent text-white font-medium rounded-lg hover:bg-red-800 transition">Gönder (Onaya Sun)</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div id="detail-modal" class="fixed inset-0 z-[110] hidden items-center justify-center modal-overlay p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full relative fade-in my-8 flex flex-col md:flex-row overflow-hidden max-h-[90vh]">
+            <button onclick="closeModal('detail-modal')" class="absolute top-4 right-4 text-white md:text-gray-400 md:hover:text-darkbrown text-2xl z-10 bg-black/30 md:bg-transparent rounded-full w-8 h-8 flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            
+            <!-- Image Side -->
+            <div class="w-full md:w-3/5 bg-black flex items-center justify-center relative min-h-[300px]">
+                <img id="detail-image" src="" alt="Detail" class="max-w-full max-h-[50vh] md:max-h-full object-contain">
+            </div>
+            
+            <!-- Content Side -->
+            <div class="w-full md:w-2/5 flex flex-col h-full max-h-[50vh] md:max-h-[90vh] overflow-y-auto bg-parchment">
+                <div class="p-6 border-b border-gray-200">
+                    <span id="detail-category" class="text-xs font-bold text-accent uppercase tracking-wider mb-2 block"></span>
+                    <h3 id="detail-title" class="font-serif text-2xl font-bold text-darkbrown mb-2 leading-tight"></h3>
+                    <div class="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                        <i class="fa-solid fa-user-pen"></i> <span id="detail-author" class="font-medium"></span>
+                        <span>•</span>
+                        <span id="detail-date"></span>
+                    </div>
+                    <p id="detail-memory" class="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed italic border-l-4 border-sepia pl-4"></p>
+                </div>
+                
+                <!-- Comments Section -->
+                <div class="p-6 flex-grow flex flex-col bg-white">
+                    <h4 class="font-medium text-darkbrown mb-4 flex items-center gap-2"><i class="fa-regular fa-comments"></i> Yorumlar</h4>
+                    
+                    <div id="comments-list" class="flex-grow space-y-4 mb-4 overflow-y-auto pr-2">
+                        <!-- Comments injected here -->
+                    </div>
+
+                    <div id="comment-form-area" class="mt-auto pt-4 border-t border-gray-100 hidden">
+                        <div class="flex gap-2">
+                            <input type="text" id="comment-input" class="flex-grow px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-sepia" placeholder="Yorum yaz...">
+                            <button onclick="addComment()" class="bg-sepia text-white px-4 py-2 rounded-lg text-sm hover:bg-darkbrown transition"><i class="fa-solid fa-paper-plane"></i></button>
+                        </div>
+                    </div>
+                    <div id="comment-login-msg" class="text-sm text-center text-gray-500 mt-auto pt-4 border-t">
+                        Yorum yapmak için <button onclick="closeModal('detail-modal'); document.getElementById('login-modal').classList.remove('hidden')" class="text-accent underline">giriş yapın</button>.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="about-modal" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 relative fade-in text-center">
+            <button onclick="closeModal('about-modal')" class="absolute top-4 right-4 text-gray-400 hover:text-darkbrown text-xl"><i class="fa-solid fa-xmark"></i></button>
+            <i class="fa-solid fa-graduation-cap text-5xl text-accent mb-4"></i>
+            <h3 class="font-serif text-2xl font-bold text-darkbrown mb-4">TÜBİTAK 4006-A Projesi</h3>
+            <p class="text-gray-600 mb-4 leading-relaxed">Bu dijital platform, "Tarih" alanı kapsamında Reyhanlı ilçesinin kültürel mirasını korumak, kuşaklar arası aktarımı sağlamak ve yerel tarih bilincini artırmak amacıyla geliştirilmiştir.</p>
+            <p class="text-sm text-gray-500">Proje Danışmanı: [İsim]<br>Proje Ekibi: [Öğrenci İsimleri]</p>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-darkbrown text-white px-6 py-3 rounded-lg shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 z-[200] flex items-center gap-3">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-green-400"></i>
+        <span id="toast-msg" class="text-sm font-medium">İşlem başarılı</span>
+    </div>
+
+    <!-- Firebase SDK Scripts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global State & Config
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'reyhanli-kent-bellegi-4006';
+        let firebaseConfig = {
+            apiKey: "dummy-key-for-environment",
+            projectId: "dummy-project"
+        };
+        
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch (e) {
+            console.warn("Firebase config not found, using dummy data mode if environment lacks real config.");
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // State Variables
+        let currentUser = null; // { name, role: 'user'|'admin' }
+        let currentUserId = null;
+        let posts = [];
+        let map = null;
+        let mapMarkers = [];
+        let currentDetailPostId = null;
+
+        // Leaflet Script Import (Dynamic)
+        const loadLeaflet = () => {
+            return new Promise((resolve) => {
+                if (window.L) return resolve();
+                const script = document.createElement('script');
+                script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+                script.onload = resolve;
+                document.head.appendChild(script);
+            });
+        };
+
+        // UI Helpers
+        window.showToast = (msg, isError = false) => {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = msg;
+            const icon = document.getElementById('toast-icon');
+            icon.className = isError ? 'fa-solid fa-circle-exclamation text-red-400' : 'fa-solid fa-circle-check text-green-400';
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        };
+
+        window.closeModal = (id) => { document.getElementById(id).classList.add('hidden'); };
+        
+        window.openAddModal = () => {
+            if (!currentUser) return showToast("Lütfen önce giriş yapın.", true);
+            document.getElementById('add-modal').classList.remove('hidden');
+            document.getElementById('add-form').reset();
+        };
+
+        window.switchView = (view) => {
+            document.getElementById('home-view').classList.add('hidden');
+            document.getElementById('admin-view').classList.add('hidden');
+            document.getElementById(`${view}-view`).classList.remove('hidden');
+            if (view === 'home' && map) {
+                setTimeout(() => map.invalidateSize(), 100); // Fix map render issue when unhidden
+            }
+        };
+
+        // Live Clock
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('live-clock').innerText = now.toLocaleTimeString('tr-TR');
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('live-date').innerText = now.toLocaleDateString('tr-TR', options);
+        }, 1000);
+        document.getElementById('current-year').innerText = new Date().getFullYear();
+
+        // Before/After Slider Logic
+        const range = document.getElementById('ba-range');
+        const resize = document.querySelector('.ba-slider .resize');
+        const handle = document.querySelector('.ba-slider .handle');
+        range.addEventListener('input', (e) => {
+            const val = e.target.value;
+            resize.style.width = val + '%';
+            handle.style.left = val + '%';
+        });
+
+        // Setup Map
+        const initMap = async () => {
+            await loadLeaflet();
+            // Default center Reyhanlı
+            map = L.map('map').setView([36.2655, 36.5684], 14);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }).addTo(map);
+            updateMapMarkers();
+        };
+
+        const updateMapMarkers = () => {
+            if (!map) return;
+            mapMarkers.forEach(m => map.removeLayer(m));
+            mapMarkers = [];
+            
+            const approvedPosts = posts.filter(p => p.status === 'approved');
+            approvedPosts.forEach(post => {
+                if (post.lat && post.lng) {
+                    const customIcon = L.divIcon({
+                        className: 'custom-pin',
+                        html: `<div style="background-color:#8B2635; width:16px; height:16px; border-radius:50%; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.4);"></div>`,
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+                    const marker = L.marker([post.lat, post.lng], {icon: customIcon}).addTo(map);
+                    marker.bindPopup(`<b>${post.title}</b><br><a href="#" onclick="openDetail('${post.id}'); return false;" style="color:#704214; text-decoration:underline;">İncele</a>`);
+                    mapMarkers.push(marker);
+                }
+            });
+        };
+
+        // Authentication Logic (Mocked visual for simplicity, using anonymous auth under the hood)
+        const handleLogin = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('login-name').value.trim();
+            if (!name) return;
+            
+            try {
+                // Ensure Firebase auth is ready
+                if (!auth.currentUser) {
+                    if (typeof __initial_auth_token !== 'undefined') {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                }
+                currentUserId = auth.currentUser.uid;
+                
+                currentUser = { 
+                    name: name, 
+                    role: name.toLowerCase() === 'admin' ? 'admin' : 'user' 
+                };
+                
+                updateAuthUI();
+                closeModal('login-modal');
+                showToast(`Hoş geldiniz, ${name}!`);
+            } catch (err) {
+                console.error(err);
+                showToast("Giriş yapılırken hata oluştu.", true);
+            }
+        };
+        document.getElementById('login-form').addEventListener('submit', handleLogin);
+
+        const updateAuthUI = () => {
+            const loginBtn = document.getElementById('login-btn');
+            const addBtn = document.getElementById('add-memory-btn');
+            const adminBtn = document.getElementById('admin-btn');
+            const userInfo = document.getElementById('user-info');
+            const usernameDisp = document.getElementById('username-display');
+            
+            if (currentUser) {
+                loginBtn.classList.add('hidden');
+                addBtn.classList.remove('hidden');
+                userInfo.classList.remove('hidden');
+                userInfo.classList.add('flex');
+                usernameDisp.innerText = currentUser.name;
+                
+                if (currentUser.role === 'admin') adminBtn.classList.remove('hidden');
+                else adminBtn.classList.add('hidden');
+
+                // Update detail modal comment area
+                document.getElementById('comment-form-area').classList.remove('hidden');
+                document.getElementById('comment-login-msg').classList.add('hidden');
+            }
+        };
+
+        // Database Operations
+        const generateId = () => Math.random().toString(36).substring(2, 15);
+
+        const initDatabase = async () => {
+            try {
+                // AUTH FIRST rule check
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                currentUserId = auth.currentUser.uid;
+                
+                // Rule: strict path /artifacts/{appId}/public/data/{collectionName}
+                const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
+                
+                // Fetch all and sort/filter in JS
+                onSnapshot(postsRef, (snapshot) => {
+                    posts = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+                    // Sort by timestamp descending
+                    posts.sort((a, b) => b.timestamp - a.timestamp);
+                    
+                    document.getElementById('gallery-loader').classList.add('hidden');
+                    renderGallery();
+                    renderAdmin();
+                    updateMapMarkers();
+
+                    // If empty, add dummy data for the prototype display
+                    if (posts.length === 0) {
+                        addDummyData(postsRef);
+                    }
+                }, (error) => {
+                    console.error("Firestore Listen Error:", error);
+                    document.getElementById('gallery-loader').classList.add('hidden');
+                    showToast("Veriler yüklenemedi.", true);
+                });
+
+            } catch (err) {
+                console.error("Initialization Error:", err);
+            }
+        };
+
+        const addDummyData = async (ref) => {
+            const dummies = [
+                {
+                    title: "Yenişehir Gölü Kenarında Çay",
+                    image: "https://placehold.co/800x600/e0d6c8/5c4a3d?text=Yenişehir+Gölü+(1985)",
+                    category: "Günlük Yaşam",
+                    memory: "1985 yılı yaz ayları... Ailecek Yenişehir gölü kenarına pikniğe gelmiştik. O zamanlar gölün etrafı daha bakir, ağaçlar daha küçüktü. Dedem hasır sandalyede oturmuş radyosundan haberleri dinliyordu.",
+                    author: "Mehmet Demir",
+                    date: new Date().toLocaleDateString('tr-TR'),
+                    timestamp: Date.now(),
+                    status: "approved",
+                    lat: 36.258, lng: 36.570,
+                    comments: []
+                },
+                {
+                    title: "Tarihi Reyhanlı Lisesi",
+                    image: "https://placehold.co/800x600/e0d6c8/5c4a3d?text=Eski+Lise+Binası",
+                    category: "Eğitim",
+                    memory: "Lise yıllarımın geçtiği o taş bina... Kışın çok soğuk olurdu ama koridorlarındaki o nostaljik yankı hiç aklımdan çıkmaz. Mezuniyet törenimizi bu bahçede yapmıştık.",
+                    author: "Ayşe K.",
+                    date: new Date().toLocaleDateString('tr-TR'),
+                    timestamp: Date.now() - 10000,
+                    status: "approved",
+                    lat: 36.265, lng: 36.565,
+                    comments: [{author: "Ali Veli", text: "Gerçekten de çok güzel bir binaydı, yazık ki şimdi yeri değişti.", date: "Az önce"}]
+                },
+                {
+                    title: "Çiftçinin Hasat Zamanı",
+                    image: "https://placehold.co/800x600/e0d6c8/5c4a3d?text=Amik+Ovası+Hasat",
+                    category: "Doğa",
+                    memory: "Amik ovasında pamuk hasadı. Eski traktörlerle gece gündüz çalışılırdı. Annemlerin bana anlattığına göre bu fotoğraf 1970'lerin başında çekilmiş.",
+                    author: "Hasan Çelik",
+                    date: new Date().toLocaleDateString('tr-TR'),
+                    timestamp: Date.now() - 20000,
+                    status: "pending",
+                    lat: 36.240, lng: 36.580,
+                    comments: []
+                }
+            ];
+            
+            for (let d of dummies) {
+                const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'));
+                await setDoc(newDocRef, d);
+            }
+        };
+
+        // Form Submission
+        document.getElementById('add-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser) return;
+            
+            const btn = document.getElementById('submit-post-btn');
+            btn.disabled = true;
+            btn.innerText = "Gönderiliyor...";
+
+            const newPost = {
+                title: document.getElementById('post-title').value,
+                image: document.getElementById('post-image').value,
+                category: document.getElementById('post-category').value,
+                memory: document.getElementById('post-memory').value,
+                lat: parseFloat(document.getElementById('post-lat').value) || 36.265,
+                lng: parseFloat(document.getElementById('post-lng').value) || 36.568,
+                author: currentUser.name,
+                userId: currentUserId,
+                date: new Date().toLocaleDateString('tr-TR'),
+                timestamp: Date.now(),
+                status: "pending", // Requires admin approval
+                comments: []
+            };
+
+            try {
+                const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'));
+                await setDoc(newDocRef, newPost);
+                showToast("Anınız onaya gönderildi. Teşekkürler!");
+                closeModal('add-modal');
+            } catch (err) {
+                console.error(err);
+                showToast("Gönderim başarısız oldu.", true);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Gönder (Onaya Sun)";
+            }
+        });
+
+        // Render Functions
+        const renderGallery = () => {
+            const grid = document.getElementById('gallery-grid');
+            const empty = document.getElementById('gallery-empty');
+            const total = document.getElementById('total-memories');
+            
+            grid.innerHTML = '';
+            const approved = posts.filter(p => p.status === 'approved');
+            total.innerText = approved.length;
+
+            if (approved.length === 0) {
+                grid.classList.add('hidden');
+                empty.classList.remove('hidden');
+                return;
+            }
+
+            grid.classList.remove('hidden');
+            empty.classList.add('hidden');
+
+            approved.forEach(post => {
+                const card = document.createElement('div');
+                card.className = "bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg transition duration-300 cursor-pointer flex flex-col h-full group";
+                card.onclick = () => openDetail(post.id);
+                
+                card.innerHTML = `
+                    <div class="h-56 overflow-hidden relative">
+                        <img src="${post.image}" alt="${post.title}" class="w-full h-full object-cover group-hover:scale-105 transition duration-500 sepia-[0.3]" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=Görsel+Bulunamadı'">
+                        <div class="absolute top-3 left-3 bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-accent uppercase tracking-wide">
+                            ${post.category}
+                        </div>
+                    </div>
+                    <div class="p-5 flex-grow flex flex-col">
+                        <h4 class="font-serif text-xl font-bold text-darkbrown mb-2 line-clamp-1">${post.title}</h4>
+                        <p class="text-gray-600 text-sm line-clamp-3 mb-4 flex-grow">${post.memory}</p>
+                        <div class="flex items-center justify-between border-t border-gray-100 pt-3 mt-auto">
+                            <div class="flex items-center gap-2 text-xs text-gray-500">
+                                <i class="fa-solid fa-medal text-yellow-600"></i> ${post.author}
+                            </div>
+                            <div class="flex gap-3 text-xs text-gray-400">
+                                <span><i class="fa-regular fa-comment"></i> ${post.comments ? post.comments.length : 0}</span>
+                                <span>${post.date}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        };
+
+        const renderAdmin = () => {
+            const list = document.getElementById('admin-list');
+            const empty = document.getElementById('admin-empty');
+            list.innerHTML = '';
+            
+            const pending = posts.filter(p => p.status === 'pending');
+            
+            if (pending.length === 0) {
+                empty.classList.remove('hidden');
+                return;
+            }
+            empty.classList.add('hidden');
+
+            pending.forEach(post => {
+                const item = document.createElement('div');
+                item.className = "bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col sm:flex-row gap-4 items-center";
+                item.innerHTML = `
+                    <img src="${post.image}" class="w-24 h-24 object-cover rounded-md bg-gray-100" onerror="this.src='https://placehold.co/100x100?text=Hata'">
+                    <div class="flex-grow text-center sm:text-left">
+                        <h5 class="font-bold text-darkbrown">${post.title}</h5>
+                        <p class="text-sm text-gray-500 line-clamp-1">${post.memory}</p>
+                        <div class="text-xs text-gray-400 mt-1">Yazar: ${post.author} | Kategori: ${post.category}</div>
+                    </div>
+                    <div class="flex gap-2 w-full sm:w-auto mt-3 sm:mt-0 justify-center">
+                        <button onclick="updatePostStatus('${post.id}', 'approved')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm transition"><i class="fa-solid fa-check"></i> Onayla</button>
+                        <button onclick="deletePost('${post.id}')" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition"><i class="fa-solid fa-trash"></i> Sil</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        };
+
+        window.updatePostStatus = async (id, status) => {
+            if (!currentUser || currentUser.role !== 'admin') return;
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
+                await updateDoc(docRef, { status: status });
+                showToast("Gönderi onaylandı.");
+            } catch (e) {
+                console.error(e);
+                showToast("Hata oluştu.", true);
+            }
+        };
+
+        window.deletePost = async (id) => {
+            if (!currentUser || currentUser.role !== 'admin') return;
+            // No confirm() allowed by rules, directly delete (or build a custom confirm modal)
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
+                await deleteDoc(docRef);
+                showToast("Gönderi silindi.");
+            } catch (e) {
+                console.error(e);
+                showToast("Hata oluştu.", true);
+            }
+        };
+
+        // Detail Modal & Comments
+        window.openDetail = (id) => {
+            const post = posts.find(p => p.id === id);
+            if (!post) return;
+            
+            currentDetailPostId = id;
+            document.getElementById('detail-image').src = post.image;
+            document.getElementById('detail-category').innerText = post.category;
+            document.getElementById('detail-title').innerText = post.title;
+            document.getElementById('detail-author').innerText = post.author;
+            document.getElementById('detail-date').innerText = post.date;
+            document.getElementById('detail-memory').innerText = post.memory;
+            
+            renderComments(post.comments || []);
+            document.getElementById('detail-modal').classList.remove('hidden');
+        };
+
+        const renderComments = (comments) => {
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '';
+            
+            if (comments.length === 0) {
+                list.innerHTML = '<div class="text-sm text-gray-400 italic text-center py-4">Henüz yorum yapılmamış. İlk yorumu siz yapın!</div>';
+                return;
+            }
+
+            comments.forEach(c => {
+                const cDiv = document.createElement('div');
+                cDiv.className = "bg-gray-50 p-3 rounded-lg border border-gray-100";
+                cDiv.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="text-xs font-bold text-darkbrown"><i class="fa-solid fa-user text-gray-400 mr-1"></i>${c.author}</span>
+                        <span class="text-[10px] text-gray-400">${c.date}</span>
+                    </div>
+                    <p class="text-sm text-gray-700">${c.text}</p>
+                `;
+                list.appendChild(cDiv);
+            });
+            // Scroll to bottom
+            list.scrollTop = list.scrollHeight;
+        };
+
+        window.addComment = async () => {
+            if (!currentUser || !currentDetailPostId) return;
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const post = posts.find(p => p.id === currentDetailPostId);
+            if (!post) return;
+
+            const newComment = {
+                author: currentUser.name,
+                text: text,
+                date: new Date().toLocaleDateString('tr-TR')
+            };
+
+            const updatedComments = [...(post.comments || []), newComment];
+
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', currentDetailPostId);
+                await updateDoc(docRef, { comments: updatedComments });
+                input.value = '';
+                // The onSnapshot listener will automatically trigger UI update for comments if modal is open, 
+                // but let's manually update detail view for instant feel.
+                renderComments(updatedComments); 
+            } catch (e) {
+                console.error(e);
+                showToast("Yorum eklenemedi.", true);
+            }
+        };
+
+        // Init App
+        window.onload = () => {
+            initDatabase().then(() => initMap());
+        };
+
+    </script>
+</body>
+</html>
